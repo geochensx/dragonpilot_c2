@@ -4,7 +4,9 @@ from panda import Panda
 from panda.python import uds
 from openpilot.selfdrive.car.toyota.values import Ecu, CAR, DBC, ToyotaFlags, CarControllerParams, TSS2_CAR, RADAR_ACC_CAR, NO_DSU_CAR, \
                                         MIN_ACC_SPEED, EPS_SCALE, UNSUPPORTED_DSU_CAR, NO_STOP_TIMER_CAR, ANGLE_CONTROL_CAR
-from openpilot.selfdrive.car import create_button_events, get_safety_config
+# 注：create_button_events 已随"原车跟车距离"改造停用（见 _update 中的说明），此处不再导入，
+# 如需恢复 gapAdjustCruise 事件，把它加回本行 import 即可
+from openpilot.selfdrive.car import get_safety_config
 from openpilot.selfdrive.car.disable_ecu import disable_ecu
 from openpilot.selfdrive.car.interfaces import CarInterfaceBase
 
