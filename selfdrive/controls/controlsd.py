@@ -70,6 +70,16 @@ DP_VAG_TIMEBOMB_BYPASS_END = 348000
 DP_LONG_MISSING_LEAD_COUNT = 2. / DT_CTRL
 DP_LONG_MISSING_LEAD_SPEED = 19.44  # 70 kph
 
+# 【原车跟车距离】原车 PCM 跟车档位 -> 纵向驾驶风格
+# 丰田 TSS2 方向盘车距按键切换的档位经 PCM_CRUISE_2.PCM_FOLLOW_DISTANCE 广播：
+#   1 = far(远)  2 = medium(中)  3 = close(近)
+# 档位为 0 表示该车未实现该信号或尚未上电完成，此时保持用户在设置里选的驾驶风格。
+PCM_DISTANCE_TO_PERSONALITY = {
+  1: log.LongitudinalPersonality.relaxed,    # 远 -> 从容，跟车时距最大
+  2: log.LongitudinalPersonality.standard,   # 中 -> 标准
+  3: log.LongitudinalPersonality.aggressive, # 近 -> 激进，跟车时距最小
+}
+
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 
 
@@ -252,6 +262,8 @@ class Controls:
     self.desired_curvature_rate = 0.0
     self.experimental_mode = False
     self.personality = self.read_personality_param()
+    # 最近一次收到的原车跟车档位（0 = 尚未收到/车辆不支持），用于判断是否让 params 覆盖 personality
+    self.pcm_follow_distance = 0
     self.v_cruise_helper = VCruiseHelper(self.CP)
     self.recalibrating_seen = False
 
@@ -294,6 +306,10 @@ class Controls:
     """Compute carEvents from carState"""
 
     self.events.clear()
+
+    # 【原车跟车距离】以原车 PCM 档位为准决定纵向驾驶风格（personality）
+    # 必须在 LaC / 纵向 MPC 使用 personality 之前更新，否则会滞后一帧
+    self.update_personality_from_pcm_distance(CS)
 
     # 更新横向控制器的驾驶风格
     if self.CP.lateralTuning.which() == 'mpc':
@@ -898,11 +914,10 @@ class Controls:
         cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
         setattr(actuators, p, 0.0)
 
-    # decrement personality on distance button press
-    if self.CP.openpilotLongitudinalControl:
-      if any(not be.pressed and be.type == ButtonType.gapAdjustCruise for be in CS.buttonEvents):
-        self.personality = (self.personality - 1) % 3
-        self.params.put_nonblocking('LongitudinalPersonality', str(self.personality))
+    # 【原车跟车距离】原逻辑：检测 gapAdjustCruise 按键后循环递减 personality。
+    # 已停用：丰田 TSS2 上该事件源是 openpilot 自己发出的 DISTANCE 脉冲回环，并非驾驶员按键，
+    # 且会与"以原车 PCM 档位为准"的规则冲突（两边互相改档位）。
+    # 现在 personality 统一由 update_personality_from_pcm_distance() 依原车档位更新。
 
     return CC, lac_log
 
@@ -1121,11 +1136,43 @@ class Controls:
     except (ValueError, TypeError):
       return log.LongitudinalPersonality.standard
 
+  def update_personality_from_pcm_distance(self, CS):
+    """根据原车跟车距离档位更新纵向驾驶风格
+
+    丰田 TSS2 的方向盘车距按键会切换原车 PCM 的跟车档位，档位通过
+    PCM_CRUISE_2.PCM_FOLLOW_DISTANCE 广播，由 toyota carstate 写入 CarState.pcmFollowDistance。
+
+      PCM 档位：1 = far(远)   2 = medium(中)   3 = close(近)   0 = 无效/未实现
+
+    映射为 personality 后，纵向 MPC 的跟车时距（get_T_FOLLOW）与 UI 上的车距条
+    （leadDistanceBars = personality + 1，3 条最远）都会跟随原车档位变化。
+    档位变化时才写回 params，避免频繁写盘；写入是为了 UI 显示与重启初值保持一致。
+
+    非丰田或该信号不可用时（值恒为 0）直接返回，完全沿用原有的 params 设置。
+    """
+    pcm_distance = getattr(CS, 'pcmFollowDistance', 0)
+    if pcm_distance == 0:
+      return
+
+    # 只要收到有效档位就记录：params_thread 依据它判断是否停止从 params 反向覆盖
+    self.pcm_follow_distance = pcm_distance
+
+    # 档位 -> 驾驶风格：远->从容, 中->标准, 近->激进
+    new_personality = PCM_DISTANCE_TO_PERSONALITY.get(pcm_distance)
+    if new_personality is None or new_personality == self.personality:
+      return
+
+    self.personality = new_personality
+    self.params.put_nonblocking('LongitudinalPersonality', str(new_personality))
+
   def params_thread(self, evt):
     while not evt.is_set():
       self.is_metric = self.params.get_bool("IsMetric")
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
-      self.personality = self.read_personality_param()
+      # 原车跟车档位有效时，驾驶风格由原车档位决定，不允许 params 反向覆盖
+      # （否则 UI/默认值会每 0.1s 把档位改动顶回去，方向盘车距键等于失效）
+      if self.pcm_follow_distance == 0:
+        self.personality = self.read_personality_param()
       if self.CP.notCar:
         self.joystick_mode = self.params.get_bool("JoystickDebugMode")
       time.sleep(0.1)

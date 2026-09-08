@@ -369,9 +369,13 @@ class CarInterface(CarInterfaceBase):
   def _update(self, c):
     # 更新车辆状态
     ret = self.CS.update(self.cp, self.cp_cam)
-    # 处理车距按钮事件（仅适用于特定车型）
-    if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) or (self.CP.flags & ToyotaFlags.SMART_DSU):
-      ret.buttonEvents = create_button_events(self.CS.distance_button, self.CS.prev_distance_button, {1: ButtonType.gapAdjustCruise})
+    # 车距按钮事件（原车跟车距离模式下已停用，保留代码备查）
+    # 停用原因：ACC_CONTROL.DISTANCE 是 openpilot 自己发出的"请求换挡"脉冲位，在 TSS2 无雷达车型上
+    # 从 cp_cam 读回的是自身回环，会把"openpilot 写档位"误判成"驾驶员按键"，导致档位自我循环。
+    # 驾驶员按方向盘车距键的真实结果体现在 PCM_CRUISE_2.PCM_FOLLOW_DISTANCE 上，
+    # 由 controlsd 直接读取 CarState.pcmFollowDistance 决定跟车时距。
+    # if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR) or (self.CP.flags & ToyotaFlags.SMART_DSU):
+    #   ret.buttonEvents = create_button_events(self.CS.distance_button, self.CS.prev_distance_button, {1: ButtonType.gapAdjustCruise})
 
     # 创建通用事件
     events = self.create_common_events(ret)

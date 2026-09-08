@@ -80,12 +80,16 @@ def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
     2. 作为动态跟车模式的基准参考值
     3. 用于计算安全跟车距离
   """
+  # 说明：personality 现在由原车跟车距离档位驱动（见 controlsd.PCM_DISTANCE_TO_PERSONALITY）
+  #   原车 far   (档位1) -> relaxed    -> 2.2s
+  #   原车 medium(档位2) -> standard   -> 1.8s
+  #   原车 close (档位3) -> aggressive -> 1.4s
   if personality==log.LongitudinalPersonality.relaxed:
-    return 1.75  # 从容模式：较大跟车时距，注重安全性和舒适性
+    return 2.2  # 原车"远"档：较大跟车时距，注重安全性和舒适性
   elif personality==log.LongitudinalPersonality.standard:
-    return 1.45  # 标准模式：平衡的跟车时距，适合日常驾驶
+    return 1.8  # 原车"中"档：平衡的跟车时距，适合日常驾驶
   elif personality==log.LongitudinalPersonality.aggressive:
-    return 1.25  # 激进模式：较小跟车时距，适合熟练驾驶员
+    return 1.4  # 原车"近"档：较小跟车时距，适合熟练驾驶员
   else:
     raise NotImplementedError("Longitudinal personality not supported")
 
@@ -94,17 +98,17 @@ def get_dynamic_follow(v_ego, personality=log.LongitudinalPersonality.standard, 
   v_ego = max(0.0, min(v_ego, 40.0))  # 限制v_ego在0-40 m/s之间
   # 根据驾驶风格设置基础时距（保留原始的关键速度点）
   if personality==log.LongitudinalPersonality.relaxed:
-    # 调整速度区间使过渡更平滑
+    # 原车"远"档：曲线终点对齐静态值 2.2s
     x_vel =  [0.0,  3.0,  8.0,  13.90,  20,    25,    40]  # m/s
-    y_dist = [1.0,  1.05, 1.15,  1.25,   1.35,  1.55,  1.7] # 秒
+    y_dist = [1.30, 1.35, 1.45,  1.60,   1.80,  2.00,  2.2] # 秒
   elif personality==log.LongitudinalPersonality.standard:
-    # 调整速度区间使过渡更平滑，增加基础跟车时距
+    # 原车"中"档：曲线终点对齐静态值 1.8s
     x_vel =  [0.0,  3.0,  8.0,  13.90,  20,    25,    40]  # m/s
-    y_dist = [0.95, 1.00, 1.05,  1.15,   1.25,  1.35,  1.4] # 秒  # 增加了基础跟车时距
+    y_dist = [1.05, 1.10, 1.20,  1.35,   1.50,  1.65,  1.8] # 秒
   elif personality==log.LongitudinalPersonality.aggressive:
-    # 调整速度区间使过渡更平滑
+    # 原车"近"档：曲线终点对齐静态值 1.4s
     x_vel =  [0.0,  4.00, 8.0,  13.89,  20,    25,    40]  # m/s
-    y_dist = [0.65, 0.70, 0.75,  0.80,   0.85,  0.95,  1.0] # 秒
+    y_dist = [0.75, 0.80, 0.90,  1.00,   1.10,  1.25,  1.4] # 秒
   else:
     raise NotImplementedError("Dynamic Follow personality not supported")
   base_t_follow = np.interp(v_ego, x_vel, y_dist)

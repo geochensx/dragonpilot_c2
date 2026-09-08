@@ -54,7 +54,8 @@ class CarState(CarStateBase):
     # 车距控制按钮状态
     self.prev_distance_button = 0  # 上一次车距按钮状态
     self.distance_button = 0  # 当前车距按钮状态
-    self.pcm_follow_distance = 0  # PCM跟车距离
+    self.pcm_follow_distance = 0  # PCM跟车距离（原车跟车距离档位，0 表示尚未收到有效值）
+    self.pcm_follow_distance_valid = False  # 原车跟车距离档位是否已收到过有效值（用于过滤上电瞬间的 0）
 
     # 系统状态标志
     self.low_speed_lockout = False  # 低速锁定标志
@@ -301,15 +302,25 @@ class CarState(CarStateBase):
       self.lkas_hud = cp_cam.vl["LKAS_HUD"]  # 车道保持辅助系统显示信息 - 直接赋值优化内存使用，避免copy.copy的微小开销
 
     # dp 车距按钮处理
+    # 读取原车跟车距离档位：PCM_CRUISE_2 -> PCM_FOLLOW_DISTANCE
+    # 该信号由原车 PCM 广播，方向盘车距按键换挡后会立即变化，是"原车跟车距离"的权威来源。
+    # openpilot 纵向控制将以它为准决定跟车时距，不再反向覆盖原车档位。
     if self.CP.carFingerprint not in UNSUPPORTED_DSU_CAR:
-      self.pcm_follow_distance = cp.vl["PCM_CRUISE_2"]["PCM_FOLLOW_DISTANCE"]  # PCM跟车距离
+      raw_pcm_distance = cp.vl["PCM_CRUISE_2"]["PCM_FOLLOW_DISTANCE"]
+      # 0 = 无效/未初始化（上电瞬间、ACC 待机时会出现）。此时保持上一次有效档位，
+      # 避免把 "未知" 当成某一档来用，也避免跟车时距在启动瞬间跳变。
+      if raw_pcm_distance != 0:
+        self.pcm_follow_distance = raw_pcm_distance
+        self.pcm_follow_distance_valid = True
+      ret.pcmFollowDistance = self.pcm_follow_distance if self.pcm_follow_distance_valid else 0
 
     # TSS2无雷达ACC车型的距离按钮处理
+    # 说明：ACC_CONTROL 的 DISTANCE 位是"请求换挡"的脉冲位，openpilot 自己也往这里发指令，
+    # 在 TSS2 无雷达车型上从 cp_cam 读回的是自身回环，不能代表驾驶员按键。
+    # 驾驶员按键的真实结果体现在 PCM_FOLLOW_DISTANCE 上，因此这里只保留状态记录供调试。
     if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR):
-      # 距离按钮连接到ACC模块（相机或雷达）
       self.prev_distance_button = self.distance_button  # 保存上一次距离按钮状态
-      if self.CP.carFingerprint in (TSS2_CAR - RADAR_ACC_CAR):
-        self.distance_button = cp_acc.vl["ACC_CONTROL"]["DISTANCE"]  # 更新当前距离按钮状态
+      self.distance_button = cp_acc.vl["ACC_CONTROL"]["DISTANCE"]  # 更新当前距离按钮状态
 
     # dp - acc过滤器 - 用于不带雷达的sdsu的距离按钮逻辑
     #self.prev_distance_button, self.distance_button = self.acc_filter_state.get_distance_button_states(self.prev_distance_button, self.distance_button)

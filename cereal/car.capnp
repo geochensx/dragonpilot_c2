@@ -257,6 +257,11 @@ struct CarState {
   rightLaneLine @78 : Int16; # -1: 无车道线, 0: 虚线, 1: 实线, +10: 白色, +20: 黄色, 例如) 21: 黄色实线
   datetime @79 :UInt64; # 从纪元开始的毫秒时间戳
 
+  # 原车跟车距离档位（由 openpilot 纵向控制使用，避免强制覆盖原车设置）
+  # 丰田 TSS2: 0 = 无效/未初始化, 1 = far(远), 2 = medium(中), 3 = close(近)
+  # 其他品牌未实现该字段时保持为 0
+  pcmFollowDistance @80 :UInt8;
+
   struct Tpms {
     fl @0 :Float32;
     fr @1 :Float32;

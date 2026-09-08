@@ -323,13 +323,13 @@ class CarController:
     # we can spam can to cancel the system even if we are using lat only control
     if (self.frame % 3 == 0 and self.CP.openpilotLongitudinalControl) or pcm_cancel_cmd:
       lead = hud_control.leadVisible or CS.out.vEgo < 12.  # at low speed we always assume the lead is present so ACC can be engaged
-      # Press distance button until we are at the correct bar length. Only change while enabled to avoid skipping startup popup
+      # 【原车跟车距离模式】不再主动改写原车档位
+      # 原逻辑：只要 PCM 档位与 openpilot 的 personality 不一致，就发 DISTANCE 脉冲把原车档位顶回去，
+      # 结果就是驾驶员按方向盘车距键换挡后会被立刻改回，"原车跟车距离"形同不可用。
+      # 现改为：档位完全交给原车/驾驶员，openpilot 只读 PCM_FOLLOW_DISTANCE 并据此调整跟车时距。
+      # 注意 distance_button 仍作为 create_accel_command 的入参，必须恒为 0（不请求换挡）。
       if self.frame % 6 == 0 and self.CP.openpilotLongitudinalControl:
-        desired_distance = 4 - hud_control.leadDistanceBars
-        if CS.out.cruiseState.enabled and CS.pcm_follow_distance != desired_distance:
-          self.distance_button = not self.distance_button
-        else:
-          self.distance_button = 0
+        self.distance_button = 0
 
       # dp - for pcm compensation
       # when stopping, send -2.5 raw acceleration immediately to prevent vehicle from creeping, else send actuators.accel
